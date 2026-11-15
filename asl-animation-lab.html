@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Thử animation ASL · Sign Studio</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #eef2f6; color: #182638; }
+    main { max-width: 1200px; margin: auto; padding: 24px; }
+    h1 { font-size: 26px; } a { color: #1751a6; }
+    .layout { display: grid; grid-template-columns: 340px 1fr; gap: 20px; }
+    .panel { padding: 20px; background: white; border-radius: 14px; }
+    label { display: block; margin: 14px 0 5px; }
+    input, select, button { max-width: 100%; font: inherit; }
+    select, button { padding: 8px; } button { cursor: pointer; margin-top: 12px; }
+    #viewport { height: 560px; position: relative; overflow: hidden; }
+    #viewport canvas { display: block; width: 100%; height: 100%; }
+    #status { min-height: 3em; } pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+    @media(max-width: 760px) { .layout { grid-template-columns: 1fr; } #viewport { height: 440px; } }
+  </style>
+</head>
+<body>
+<main>
+  <a href="./">← Về Sign Studio</a>
+  <h1>Thử animation ASL cục bộ</h1>
+  <p>Nạp một tệp FBX hoặc GLB có animation để xem chuyển động gốc và kiểm tra khung xương. Tệp được xử lý trong trình duyệt, không gửi tới Gemini.</p>
+  <div class="layout">
+    <section class="panel" aria-label="Điều khiển animation">
+      <label for="sample">Mẫu ASL đã tải · Studio Galt (CC0)</label>
+      <select id="sample" disabled><option>Đang đọc danh sách mẫu…</option></select>
+      <button id="load-sample" disabled>Mở mẫu đã chọn</button>
+      <label for="motion-file">Tệp animation (tối đa 100 MB)</label>
+      <input id="motion-file" type="file" accept=".fbx,.glb" />
+      <label for="clip">Chuyển động trong tệp</label>
+      <select id="clip" disabled></select>
+      <label for="speed">Tốc độ phát</label>
+      <select id="speed"><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="1.5">1,5×</option></select>
+      <div><button id="play" disabled>Tạm dừng</button> <button id="restart" disabled>Phát từ đầu</button></div>
+      <button id="target" disabled>Thử trên nhân vật Vest</button>
+      <button id="source" disabled>Xem khung xương gốc</button>
+      <p id="status" role="status" aria-live="polite">Chọn mẫu Studio Galt hoặc nạp tệp của bạn. Các mẫu chưa được kiểm chứng ASL trong ứng dụng này.</p>
+      <p>Giữ chuột để xoay, cuộn để phóng to. Đường màu thể hiện khung xương.</p>
+      <button id="report" disabled>Tải báo cáo kiểm tra</button>
+    </section>
+    <section class="panel" id="viewport" aria-label="Khung xem animation 3D"></section>
+  </div>
+  <section class="panel" style="margin-top:20px">
+    <h2>Kết quả kiểm tra</h2>
+    <pre id="details">Chưa có dữ liệu.</pre>
+    <p>Thử trên Vest chỉ khả dụng khi các khớp được điều khiển có cùng cấu trúc và tư thế gốc. Khung xương khác cần chuyển đổi trước. Kết quả này kiểm tra kỹ thuật, chưa xác nhận độ chính xác ASL và chưa thêm ký hiệu vào từ điển.</p>
+  </section>
+</main>
+<script type="module" src="/src/aslAnimationLab.js"></script>
+</body>
+</html>

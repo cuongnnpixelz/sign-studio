@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign Studio · Ngôn ngữ ký hiệu 3D</title>
+  <meta name="description" content="Thử nghiệm chuyển câu nói tiếng Việt và tiếng Anh thành cử chỉ 3D, lấy cảm hứng từ video tham chiếu.">
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body class="studio-theme">
+  <!-- Ambient Studio Lighting Effects -->
+  <div class="studio-backdrop-glow"></div>
+
+  <div class="app-container">
+    <!-- Header Bar -->
+    <header class="app-header">
+      <div class="brand-section">
+        <div class="prodeaf-logo-badge">
+          <span class="prodeaf-waves">🖖</span>
+        </div>
+        <div class="brand-text">
+          <h1 class="main-title">Sign Studio <span class="title-tag">3D</span></h1>
+          <div class="sub-partners">
+            <span class="partner-prodeaf">Nói · Hiểu · Kết nối</span>
+            <span class="partner-sep">•</span>
+            <span class="partner-ms">Bản dựng theo video</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Header Center / Actions -->
+      <div class="header-center-controls">
+        <div class="selector-capsule">
+          <label for="source-lang-select" class="capsule-label">Speech:</label>
+          <select id="source-lang-select" class="modern-select">
+            <option value="en-US" selected>🇺🇸 English (US)</option>
+            <option value="vi-VN">🇻🇳 Tiếng Việt</option>
+          </select>
+
+          <span class="capsule-arrow">➔</span>
+
+          <label for="target-sign-select" class="capsule-label">Sign:</label>
+          <select id="target-sign-select" class="modern-select">
+            <option value="asl" selected>🇺🇸 ASL (American Sign)</option>
+            <option value="vsl">🇻🇳 VSL (Ký hiệu Việt Nam)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div class="esp32-controls">
+          <input id="esp32-ip" type="text" class="modern-input"
+                 placeholder="ESP32 IP"
+                 value="192.168.1.24"
+                 title="Nhập địa chỉ IP của ESP32-S3 (ví dụ: 192.168.1.24)"
+                 style="width: 120px; font-size: 0.72rem; padding: 4px 8px;" />
+          <button id="esp32-connect-btn" class="pill-action-btn" title="Kết nối micro ESP32-S3 qua WebSocket">
+            📡 ESP32
+          </button>
+          <span id="esp32-status" class="esp32-status-dot" title="Trạng thái ESP32">⚫</span>
+        </div>
+        <label class="character-selector" for="character-model-select">Nhân vật
+          <select id="character-model-select" class="modern-select">
+            <option value="vest" selected>Nhân vật Vest</option>
+          </select>
+        </label>
+        <button id="export-model-btn" class="pill-action-btn" title="Tải nhân vật đang hiển thị dưới dạng GLB">
+          ⬇️ Tải .GLB
+        </button>
+        <label for="custom-model-input" class="pill-action-btn" title="Xem mô hình .GLB khác">
+          📂 Nạp .GLB
+        </label>
+        <input type="file" id="custom-model-input" accept=".glb" style="display: none;">
+        <button id="learner-modal-btn" class="pill-action-btn primary-glow" title="Dạy &amp; học ký hiệu mới cho ASL và VSL">
+          🎓 Học ký hiệu
+        </button>
+        <button id="theme-toggle-btn" class="pill-action-btn" title="Chuyển chế độ Sáng Studio / Tối">
+          ☀️ Studio
+        </button>
+        <button id="info-modal-btn" class="icon-circle-btn" title="Thông tin bản thử nghiệm">
+          ℹ️
+        </button>
+      </div>
+    </header>
+
+    <!-- 3D Viewport Area -->
+    <main class="viewport-wrapper">
+      <div id="canvas-container"></div>
+
+      <!-- Overlays directly matching video composition -->
+      <div class="viewport-overlay">
+        <div class="stage-caption"><span class="live-dot"></span> KHÔNG GIAN KÝ HIỆU <span id="character-label">ĐANG NẠP NHÂN VẬT VEST…</span></div>
+        <button id="focus-btn" class="pill-action-btn focus-button">⛶ Trình diễn</button>
+        <div id="notice" role="status" aria-live="polite"></div>
+        <!-- Top: Video Quote Upper Subtitle (Floating above Avatar Head) -->
+        <div class="video-quote-overlay">
+          <div id="gloss-hud-box" class="video-quote-container">
+            <span class="gloss-quote-placeholder">“ Hello, how are you today? ”</span>
+          </div>
+        </div>
+
+        <!-- Center: Microsoft Translator Circular Dotted Spinner -->
+        <div id="center-loading-spinner" class="ms-circular-spinner">
+          <div class="spinner-dot dot-1"></div>
+          <div class="spinner-dot dot-2"></div>
+          <div class="spinner-dot dot-3"></div>
+          <div class="spinner-dot dot-4"></div>
+          <div class="spinner-dot dot-5"></div>
+          <div class="spinner-dot dot-6"></div>
+          <div class="spinner-dot dot-7"></div>
+          <div class="spinner-dot dot-8"></div>
+        </div>
+
+        <!-- Reference Poses Floating Dock (Exact match with the 2 reference screenshots) -->
+        <div class="poses-floating-dock">
+          <div class="dock-header-tag">TƯ THẾ THAM CHIẾU</div>
+          <button class="pose-pill" id="btn-pose-img1" data-pose="Image1_Wave_Hello" title="Ảnh 2: Vẫy tay chào và mỉm cười">
+            👋 Vẫy chào <small>Ảnh 2</small>
+          </button>
+          <button class="pose-pill" id="btn-pose-img2" data-pose="Image2_Sign_Chest" title="Ảnh 1: Hai tay khum trước ngực">
+            🤲 Hai tay trước ngực <small>Ảnh 1</small>
+          </button>
+          <button class="pose-pill" id="btn-pose-idle" data-pose="Idle" title="Tư thế đứng nghỉ chuẩn">
+            👤 Đứng nghỉ
+          </button>
+        </div>
+
+        <!-- Camera Preset Floating Buttons -->
+        <div class="camera-floating-dock">
+          <button class="cam-pill active" data-cam="halfbody" title="Góc nhìn 3/4 Video">👤 Toàn cảnh</button>
+          <button class="cam-pill" data-cam="closeup" title="Cận cảnh khuôn mặt">🔍 Cận cảnh</button>
+          <button class="cam-pill" data-cam="cinematic" title="Góc điện ảnh">🎬 Điện ảnh</button>
+        </div>
+
+        <!-- Lower Center: Video Subtitle Black Bar (Positioned exactly over jeans area) -->
+        <div class="video-lower-sub-container">
+          <div id="speech-subtitle-box" class="video-sub-box">
+            <div class="video-sub-banner">
+              <span class="sub-lead">English:</span>
+              <span class="sub-body">Hello, how are you today?</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Bottom Controls & Flag Carousel Bar (Identical to Video) -->
+    <footer class="app-control-dock">
+      <div class="hybrid-controls">
+        <label for="translation-mode">Dịch bằng
+          <select id="translation-mode" class="modern-select">
+            <option value="local">Cục bộ · không phí API</option>
+            <option value="hybrid">Hybrid · Gemini → ASL</option>
+          </select>
+        </label>
+        <span id="hybrid-status" role="status">Đang kiểm tra Gemini…</span>
+        <button id="check-hybrid-btn" class="pill-action-btn" type="button">Kiểm tra kết nối</button>
+      </div>
+      <p id="hybrid-hint" class="hybrid-hint"></p>
+      <details class="translation-details" open>
+        <summary>Kết quả dịch &amp; động tác</summary>
+        <p id="translation-result" role="status" aria-live="polite">Chọn câu mẫu hoặc nhập câu để bắt đầu.</p>
+        <p id="translation-english"></p>
+        <p id="translation-fallback"></p>
+      </details>
+      <!-- Circular Flags Row (Matching video bottom bar at 00:13, 00:27, 00:51) -->
+      <div class="flags-carousel-row">
+        <span class="flag-row-label">Languages:</span>
+        <div class="flags-track">
+          <button class="flag-ball active" data-lang="en-US" title="English">
+            <span class="flag-emoji">🇺🇸</span>
+            <span class="flag-tag">EN</span>
+          </button>
+          <button class="flag-ball" data-lang="vi-VN" title="Tiếng Việt">
+            <span class="flag-emoji">🇻🇳</span>
+            <span class="flag-tag">VI</span>
+          </button>
+        </div>
+
+        <!-- Status Badge -->
+        <div id="status-badge" class="prodeaf-status-badge status-idle">
+          <span class="status-indicator-dot"></span>
+          <span id="status-text">🟢 SẴN SÀNG</span>
+        </div>
+      </div>
+
+      <!-- Presets quick bar (Exact scenes from video!) -->
+      <div class="quick-presets-strip">
+        <a class="preset-chip" href="./asl-animation-lab.html" target="_blank" rel="noopener">Thử animation ASL (FBX/GLB)</a>
+        <button id="demo-btn" class="preset-chip demo-button">▶ Hội thoại Việt–Anh</button>
+        <button class="preset-chip" data-phrase="Hello, how are you today?" data-lang="en-US">🇺🇸 1: Hello, how are you today?</button>
+        <button class="preset-chip" data-phrase="Tôi khỏe, cảm ơn bạn." data-lang="vi-VN">🇻🇳 2: Tôi khỏe, cảm ơn bạn.</button>
+        <button class="preset-chip" data-phrase="I am fine, thank you." data-lang="en-US">🇺🇸 3: I am fine, thank you.</button>
+        <button class="preset-chip" data-phrase="Chúc bạn một ngày vui vẻ." data-lang="vi-VN">🇻🇳 4: Chúc bạn một ngày vui vẻ.</button>
+        <button class="preset-chip" data-phrase="Hôm nay bạn thế nào?" data-lang="vi-VN">🇻🇳 5: Hôm nay bạn thế nào? (VSL)</button>
+        <button class="preset-chip" data-phrase="Hôm nay tôi muốn ăn cơm" data-lang="vi-VN">🍚 6: Tôi muốn ăn cơm (VSL)</button>
+        <button class="preset-chip" data-phrase="Tôi yêu gia đình và Việt Nam" data-lang="vi-VN">🇻🇳 7: Tôi yêu gia đình và Việt Nam</button>
+        <button class="preset-chip" data-phrase="Bệnh viện ở đâu làm ơn giúp tôi" data-lang="vi-VN">🏥 8: Bệnh viện ở đâu làm ơn giúp tôi (VSL)</button>
+        <button class="preset-chip" data-phrase="Xin chào bạn, tôi tên là Alex" data-lang="vi-VN">👋 9: Xin chào bạn, tôi tên là Alex (VSL)</button>
+        <button class="preset-chip" data-phrase="Where is the doctor?" data-lang="en-US">🏥 10: Where is the doctor? (ASL)</button>
+        <button class="preset-chip" data-phrase="My name is Alex" data-lang="en-US">🔤 11: My name is Alex (Đánh vần)</button>
+        <button class="preset-chip" data-phrase="What is your name?" data-lang="en-US">❓ What is your name?</button>
+        <button class="preset-chip" data-phrase="I love you" data-lang="en-US">❤️ I love you</button>
+      </div>
+
+      <!-- Main Action Controls Row -->
+      <div class="bottom-action-row">
+        <!-- Speed & Replay -->
+        <div class="speed-widget">
+          <span class="speed-title">Speed:</span>
+          <button class="speed-toggle" data-speed="0.5">0.5x</button>
+          <button class="speed-toggle" data-speed="0.75">0.75x</button>
+          <button class="speed-toggle active" data-speed="1.0">1.0x</button>
+          <button class="speed-toggle" data-speed="1.25">1.25x</button>
+          <button id="replay-btn" class="replay-circle-btn" title="Phát lại ký hiệu">🔄</button>
+          <button id="pause-btn" class="pill-action-btn" aria-pressed="false" disabled>Ⅱ Tạm dừng</button>
+          <button id="stop-btn" class="replay-circle-btn" title="Dừng và về tư thế nghỉ" aria-label="Dừng">■</button>
+        </div>
+
+        <!-- Big Microphone Button -->
+        <div class="mic-cluster">
+          <div id="mic-container" class="mic-button-housing">
+            <div class="mic-ripple"></div>
+            <button id="mic-btn" class="mic-trigger-btn" title="Nói vào Micro">
+              🎙️
+            </button>
+          </div>
+          <canvas id="visualizer-canvas" class="mic-audio-meter"></canvas>
+        </div>
+
+        <!-- Manual Input -->
+        <div class="manual-input-cluster">
+          <input 
+            id="manual-input" 
+            type="text" 
+            class="video-styled-input" 
+            placeholder="Nhập câu, ví dụ: Xin chào..."
+            aria-label="Văn bản cần chuyển sang ký hiệu"
+            maxlength="500"
+            autocomplete="off"
+          />
+          <button id="send-input-btn" class="video-send-btn" title="Dịch & Ký hiệu">
+            ➤
+          </button>
+        </div>
+      </div>
+      <div class="playback-strip"><progress id="playback-progress" max="1" value="0" aria-label="Tiến trình ký hiệu"></progress><span id="playback-counter">Sẵn sàng</span><span class="demo-disclosure">Bản thử nghiệm · Cử chỉ minh họa, chưa kiểm chứng</span></div>
+    </footer>
+  </div>
+
+  <!-- Info Modal -->
+  <div id="info-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="info-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="info-title" class="modal-title">Về Sign Studio</h3>
+        <button id="modal-close-btn" class="modal-close-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <p><strong>Character (FBX):</strong> Mô hình bạn cung cấp đã được chuyển từ FBX 6.1 sang GLB, giữ vật liệu và bộ xương Mixamo. Vai, khuỷu tay, cổ tay, các khớp ngón tay và đầu được nối với trình phát ký hiệu. Mô hình không có hoạt ảnh hoặc biểu cảm khuôn mặt riêng.</p>
+        <p>Nhân vật được dựng lại bằng hình học 3D theo ảnh và video tham chiếu, với blazer tối, sơ mi xanh nhạt, tóc nâu và bàn tay có khớp. Đây không phải mô hình gốc của ProDeaf.</p>
+        <p><strong>Hybrid:</strong> Gemini nhận văn bản và trả chuỗi gloss ASL cùng dấu hiệu phi thủ công (NMM). Máy bạn ghép động tác có sẵn; từ thiếu động tác được đánh vần A–Z. JSON của AI không tự tạo động tác mới, kết quả cần được người biết ASL kiểm chứng.</p>
+        <p><strong>Kết nối Gemini:</strong> Sao chép <code>.env.example</code> thành <code>.env.local</code>, điền <code>GEMINI_API_KEY</code> lấy từ <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>, rồi khởi động lại máy chủ. Key chỉ nằm ở máy chủ. Chọn model và hạn mức trong tài khoản Google; ứng dụng không tự bật thanh toán. Văn bản ở chế độ Hybrid được gửi tới Google.</p>
+        <p>Nhập câu hoặc dùng micro trên trình duyệt hỗ trợ. Micro dùng dịch vụ nhận giọng nói của trình duyệt. Chế độ Cục bộ, câu chào khởi động và Hội thoại Việt–Anh không gọi Gemini. Phát lại dùng kết quả có sẵn.</p>
+        <p>Các lựa chọn ASL và VSL hiện thay đổi nhãn từ vựng, còn dùng chung cử chỉ minh họa. Chưa có bộ chuyển động riêng đã được kiểm chứng cho từng ngôn ngữ ký hiệu.</p>
+        <p>Chọn <strong>Hội thoại Việt–Anh</strong> để phát bốn câu hội thoại Việt–Anh liên tiếp. Có thể tạm dừng, đổi tốc độ, phát lại, xoay nhân vật hoặc dùng chế độ trình diễn. Nhấn Esc để thoát trình diễn.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sign Learner & Knowledge Base Modal -->
+  <div id="learner-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="learner-title">
+    <div class="modal-card learner-modal-card">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h3 id="learner-title" class="modal-title">🎓 Trung Tâm Học Ký Hiệu ASL &amp; VSL</h3>
+          <span class="learner-subtitle">Dạy avatar cử chỉ mới · Lưu trữ tự động · Tương thích cả ASL và VSL</span>
+        </div>
+        <button id="learner-close-btn" class="modal-close-btn" aria-label="Đóng">✕</button>
+      </div>
+      
+      <div class="learner-tabs-nav">
+        <button class="learner-tab-btn active" data-tab="teach">➕ Dạy Ký Hiệu Mới</button>
+        <button class="learner-tab-btn" data-tab="library">📚 Thư Viện Ký Hiệu (<span id="sign-count-badge">0</span>)</button>
+      </div>
+
+      <div class="modal-body learner-modal-body">
+        <!-- Tab 1: Teach New Sign -->
+        <div id="tab-teach" class="learner-tab-pane active">
+          <form id="teach-sign-form" class="teach-form">
+            <div class="form-row-dual">
+              <div class="form-group">
+                <label for="new-sign-word">Từ ngữ / Cụm từ:</label>
+                <input type="text" id="new-sign-word" class="modern-input" placeholder="Ví dụ: ăn, cơm, bác sĩ, family, book..." required />
+              </div>
+              <div class="form-group">
+                <label for="new-sign-lang">Hệ ngôn ngữ ký hiệu:</label>
+                <select id="new-sign-lang" class="modern-select">
+                  <option value="vsl" selected>🇻🇳 VSL (Ký hiệu Việt Nam)</option>
+                  <option value="asl">🇺🇸 ASL (American Sign)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row-dual">
+              <div class="form-group">
+                <label for="new-sign-template">Mẫu cử chỉ chuyển động:</label>
+                <select id="new-sign-template" class="modern-select">
+                  <option value="tap">Chạm nhẹ 2 lần (Ăn, Biết, Nghĩ, Bố, Mẹ)</option>
+                  <option value="push">Đẩy tới trước (Cảm ơn, Đi, Cho, Tốt)</option>
+                  <option value="pull">Kéo về ngực (Muốn, Lấy, Của tôi)</option>
+                  <option value="wave">Vẫy tay qua lại (Chào, Tạm biệt)</option>
+                  <option value="rotate">Xoay tròn nhẹ (Làm ơn, Học, Làm việc)</option>
+                  <option value="cross">Bắt chéo ôm ngực (Yêu, Dừng, Nguy hiểm)</option>
+                  <option value="brush">Vuốt ngực lên (Vui vẻ, Khỏe, Hạnh phúc)</option>
+                  <option value="nod">Gật tay lên xuống (Có, Đúng, Đồng ý)</option>
+                  <option value="shake">Lắc qua lại (Không, Ở đâu, Cái gì)</option>
+                  <option value="openClose">Hai tay mở rộng (Sách, Nhà, Trường học)</option>
+                  <option value="sCurve">Vẽ chữ S trước ngực (Việt Nam)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="new-sign-handshape">Dáng bàn tay (Handshape):</label>
+                <select id="new-sign-handshape" class="modern-select">
+                  <option value="flat">Lòng bàn tay mở phẳng (B-shape)</option>
+                  <option value="pinch">Chụm ngón tay (Ăn, Đồ ăn, Chữ O)</option>
+                  <option value="fist">Nắm đấm (A/S fist, Làm việc, Xin lỗi)</option>
+                  <option value="point">Chỉ ngón trỏ (1-shape, Đi, Nghĩ, Ai)</option>
+                  <option value="cup">Bàn tay khum tròn (C-shape, Uống, Cốc)</option>
+                  <option value="peace">Ngón trỏ &amp; giữa (V-shape, Nhìn, Xem)</option>
+                  <option value="thumbsUp">Giơ ngón cái (Tốt, Khỏe, Bố)</option>
+                  <option value="yShape">Ngón cái &amp; út (Y-shape, Hôm nay, Alo)</option>
+                  <option value="cShape">Cong chữ C (Ước, Mong muốn)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row-dual">
+              <div class="form-group">
+                <label for="new-sign-location">Vị trí ký hiệu:</label>
+                <select id="new-sign-location" class="modern-select">
+                  <option value="chest">Trước ngực</option>
+                  <option value="chin">Cằm</option>
+                  <option value="mouth">Gần miệng</option>
+                  <option value="forehead">Trán / Thái dương</option>
+                  <option value="front">Phía trước mặt</option>
+                  <option value="waist">Ngang eo / Cổ tay</option>
+                </select>
+              </div>
+              <div class="form-group checkbox-group">
+                <label class="checkbox-label" for="new-sign-twohanded">
+                  <input type="checkbox" id="new-sign-twohanded" />
+                  <span>Dùng cả hai tay (Hai tay đối xứng / tương tác)</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="new-sign-desc">Mô tả cử chỉ / Ghi chú ngữ nghĩa:</label>
+              <input type="text" id="new-sign-desc" class="modern-input" placeholder="Ví dụ: Đặt tay trước cằm gật nhẹ..." />
+            </div>
+
+            <div class="teach-actions-bar">
+              <button type="button" id="btn-auto-synthesize" class="pill-action-btn secondary-btn" title="Tự động chọn dáng tay và cử chỉ phù hợp với từ ngữ">
+                ✨ AI Tự Động Tạo
+              </button>
+              <button type="button" id="btn-preview-sign" class="pill-action-btn" title="Xem avatar diễn thử ký hiệu này ngay">
+                👁️ Xem Thử Trên Avatar
+              </button>
+              <button type="submit" id="btn-save-sign" class="pill-action-btn primary-glow">
+                💾 Lưu Vào Bộ Nhớ Ký Hiệu
+              </button>
+            </div>
+            <div id="teach-status-message" class="status-msg"></div>
+          </form>
+        </div>
+
+        <!-- Tab 2: Library & Manage Signs -->
+        <div id="tab-library" class="learner-tab-pane">
+          <div class="library-header-bar">
+            <input type="text" id="sign-search-input" class="modern-input search-input" placeholder="🔍 Tìm kiếm ký hiệu (tiếng Việt / English)..." />
+            <select id="sign-filter-lang" class="modern-select compact-select">
+              <option value="all">Tất cả (All)</option>
+              <option value="vsl">🇻🇳 VSL</option>
+              <option value="asl">🇺🇸 ASL</option>
+              <option value="custom">⭐ Đã học (Custom)</option>
+            </select>
+            <button id="btn-export-signs" class="pill-action-btn compact-btn" type="button" title="Xuất toàn bộ ký hiệu đã học ra file JSON">⬇️ Xuất JSON</button>
+            <label for="import-signs-input" class="pill-action-btn compact-btn" title="Nạp ký hiệu đã học từ file JSON">⬆️ Nhập JSON</label>
+            <input type="file" id="import-signs-input" accept=".json" style="display: none;" />
+          </div>
+
+          <div id="sign-library-grid" class="sign-library-grid">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

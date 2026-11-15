@@ -1,0 +1,19 @@
+{
+  "name": "language-translate",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test:animation-import": "node --test scripts/external-animation.test.mjs",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "vite preview",
+    "test": "node scripts/verify.mjs && node --test scripts/hybrid.test.mjs scripts/fingerspelling.test.mjs && node scripts/test-esp32-bridge.mjs && node scripts/test-sign-learner.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "three": "^0.186.1",
+    "vite": "^8.3.4"
+  }
+}
