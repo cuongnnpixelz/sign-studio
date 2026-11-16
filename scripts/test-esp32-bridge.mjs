@@ -22,12 +22,17 @@ console.log('✓ IP save and load via localStorage works');
 // 2. Mock WebSocket for testing Bridge logic
 class MockWebSocket {
   static instances = [];
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+
   constructor(url) {
     this.url = url;
-    this.readyState = 0; // CONNECTING
+    this.readyState = MockWebSocket.CONNECTING;
     MockWebSocket.instances.push(this);
     setTimeout(() => {
-      this.readyState = 1; // OPEN
+      this.readyState = MockWebSocket.OPEN;
       if (this.onopen) this.onopen();
     }, 10);
   }
@@ -35,7 +40,7 @@ class MockWebSocket {
     this.lastSent = data;
   }
   close() {
-    this.readyState = 3; // CLOSED
+    this.readyState = MockWebSocket.CLOSED;
     if (this.onclose) this.onclose();
   }
 }
@@ -83,6 +88,27 @@ assert.equal(receivedTranscript, 'Xin chào', 'Transcript should match received 
 assert.equal(receivedLang, 'vi-VN', 'Language should match received speech lang');
 console.log('✓ Bridge receives and delivers transcript callback');
 
+// 4b. Test Whisper Hallucination Filter
+receivedTranscript = null;
+mockWs.onmessage({
+  data: JSON.stringify({
+    type: 'speech',
+    text: 'Hãy subscribe cho kênh Ghiền Mì Gõ Để không bỏ lỡ những video hấp dẫn',
+    lang: 'vi-VN'
+  })
+});
+assert.equal(receivedTranscript, null, 'Hallucination text should be filtered out and not delivered');
+
+mockWs.onmessage({
+  data: JSON.stringify({
+    type: 'speech',
+    text: 'Hẹn gặp lại các bạn trong những video tiếp theo.',
+    lang: 'vi-VN'
+  })
+});
+assert.equal(receivedTranscript, null, 'Outro text should be filtered out and not delivered');
+console.log('✓ Bridge properly filters out Whisper hallucinations');
+
 // 5. Test Audio Level
 mockWs.onmessage({
   data: JSON.stringify({
@@ -101,5 +127,52 @@ assert.equal(bridge.connected, false, 'Bridge should be disconnected');
 assert.equal(statusHistory.at(-1), 'disconnected', 'Status should be disconnected');
 console.log('✓ Bridge disconnects cleanly');
 
-console.log('All ESP32 Bridge tests passed! ✅');
+// 7. Test TFT Streamer and Binary Framing
+import { TFTFrameStreamer, TFT_HEADER_SIZE, TFT_MAGIC_0, TFT_MAGIC_1, TFT_PROTOCOL_VERSION } from '../src/hardware/tftFrameStreamer.js';
+
+let lastAckReceived = null;
+let lastErrorReceived = null;
+const mockStreamer = {
+  handleAck: (ack) => { lastAckReceived = ack; },
+  handleError: (err) => { lastErrorReceived = err; },
+  handleDisconnected: () => {}
+};
+
+bridge.setTftStreamer(mockStreamer);
+bridge.connect('192.168.1.150');
+await new Promise(r => setTimeout(r, 20));
+
+const wsInstance = MockWebSocket.instances.at(-1);
+
+// Test receiving tft_frame_ack
+wsInstance.onmessage({
+  data: JSON.stringify({ type: 'tft_frame_ack', frameId: 42, renderMs: 38 })
+});
+assert.equal(lastAckReceived?.frameId, 42, 'Bridge should forward tft_frame_ack to streamer');
+assert.equal(lastAckReceived?.renderMs, 38, 'Render ms should match');
+console.log('✓ Bridge forwards tft_frame_ack to TFT streamer');
+
+// Test receiving tft_frame_error
+wsInstance.onmessage({
+  data: JSON.stringify({ type: 'tft_frame_error', frameId: 43, error: 'DECODE_FAILED' })
+});
+assert.equal(lastErrorReceived?.error, 'DECODE_FAILED', 'Bridge should forward error to streamer');
+console.log('✓ Bridge forwards tft_frame_error to TFT streamer');
+
+// Test binary send
+const dummyBuffer = new Uint8Array([0x54, 0x46, 0x01, 0x01, 0x05, 0x00, 0x00, 0x00]);
+bridge.sendBinary(dummyBuffer.buffer);
+assert.equal(wsInstance.lastSent instanceof ArrayBuffer, true, 'sendBinary should transmit ArrayBuffer');
+console.log('✓ Bridge sends binary buffer for TFT frame packets');
+
+// Test TFTFrameStreamer header constants
+assert.equal(TFT_HEADER_SIZE, 16);
+assert.equal(TFT_MAGIC_0, 0x54);
+assert.equal(TFT_MAGIC_1, 0x46);
+assert.equal(TFT_PROTOCOL_VERSION, 1);
+console.log('✓ TFT Protocol header constants and framing verified');
+
+bridge.disconnect();
+
+console.log('All ESP32 Bridge & TFT Streamer tests passed! ✅');
 

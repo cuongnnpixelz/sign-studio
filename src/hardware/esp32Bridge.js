@@ -5,6 +5,41 @@
  * ESP32 thu âm → Groq STT → text → WebSocket broadcast → Sign Studio avatar.
  */
 
+const HALLUCINATION_PATTERNS = [
+  /subscribe/i,
+  /ghiền mì gõ/i,
+  /ghien mi go/i,
+  /la la school/i,
+  /lala school/i,
+  /video hấp dẫn/i,
+  /video hap dan/i,
+  /video tiếp theo/i,
+  /video tiep theo/i,
+  /những video/i,
+  /nhung video/i,
+  /đăng ký kênh/i,
+  /dang ky kenh/i,
+  /like và/i,
+  /like va/i,
+  /theo dõi và hẹn/i,
+  /theo doi va hen/i,
+  /hẹn gặp lại các bạn/i,
+  /hen gap lai cac ban/i,
+  /cảm ơn các bạn đã theo dõi/i,
+  /chuông thông báo/i
+];
+
+/**
+ * Kiểm tra xem văn bản nhận được có phải ảo giác thường gặp của Whisper
+ * khi gặp khoảng lặng hoặc tạp âm YouTube hay không.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function isWhisperHallucination(text) {
+  if (!text || typeof text !== 'string') return false;
+  return HALLUCINATION_PATTERNS.some(pattern => pattern.test(text));
+}
+
 export class ESP32Bridge {
   /**
    * @param {Object} options
@@ -23,6 +58,12 @@ export class ESP32Bridge {
     this.espIP = null;
     this.connected = false;
     this._intentionalClose = false;
+    this.tftStreamer = null;
+  }
+
+  /** Gắn module TFT Streamer */
+  setTftStreamer(streamer) {
+    this.tftStreamer = streamer;
   }
 
   /** Kết nối WebSocket tới ESP32-S3 */
@@ -54,24 +95,42 @@ export class ESP32Bridge {
     this.ws.onopen = () => {
       this.connected = true;
       this.reconnectDelay = 3000;
+      this.ws.binaryType = 'arraybuffer';
       this.onStatus?.('connected');
       console.log(`[ESP32Bridge] Đã kết nối ws://${this.espIP}:81`);
     };
 
     this.ws.onmessage = (event) => {
+      // Bỏ qua nếu là dữ liệu nhị phân nhận từ ESP32 (hiện tại ESP32 chỉ gửi JSON)
+      if (typeof event.data !== 'string') return;
+
       try {
         const data = JSON.parse(event.data);
 
         if (data.type === 'speech' && typeof data.text === 'string' && data.text.trim()) {
-          this.onTranscript?.(data.text.trim(), data.lang || 'vi-VN');
+          const trimmed = data.text.trim();
+          if (isWhisperHallucination(trimmed)) {
+            console.warn('[ESP32Bridge] Đã lọc ảo giác Whisper (YouTube Outro):', trimmed);
+            return;
+          }
+          this.onTranscript?.(trimmed, data.lang || 'vi-VN');
         }
 
-        // Tùy chọn: nhận RMS level để hiển thị trên UI
+        // Nhận RMS level để hiển thị trên UI
         if (data.type === 'audio_level' && typeof data.rms === 'number') {
           this.onAudioLevel?.(data.rms, !!data.recording);
         }
+
+        // Nhận ACK hoặc phản hồi TFT từ ESP32
+        if (data.type === 'tft_frame_ack') {
+          this.tftStreamer?.handleAck(data);
+        } else if (data.type === 'tft_frame_error') {
+          this.tftStreamer?.handleError(data);
+        } else if (data.type === 'tft_ready') {
+          console.log('[ESP32Bridge] ESP32 ST7789 TFT sẵn sàng:', data);
+        }
       } catch {
-        // Bỏ qua message không phải JSON (ví dụ: debug text từ Serial)
+        // Bỏ qua message không phải JSON
       }
     };
 
@@ -81,6 +140,7 @@ export class ESP32Bridge {
 
     this.ws.onclose = () => {
       this.connected = false;
+      this.tftStreamer?.handleDisconnected();
       if (!this._intentionalClose) {
         this.onStatus?.('disconnected');
         this._scheduleReconnect();
@@ -113,10 +173,17 @@ export class ESP32Bridge {
     }
   }
 
-  /** Gửi lệnh xuống ESP32 (tùy chọn: đổi ngôn ngữ, calibrate...) */
+  /** Gửi lệnh text/JSON xuống ESP32 */
   send(data) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(typeof data === 'string' ? data : JSON.stringify(data));
+    }
+  }
+
+  /** Gửi dữ liệu nhị phân (JPEG chunk) xuống ESP32 */
+  sendBinary(buffer) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(buffer);
     }
   }
 

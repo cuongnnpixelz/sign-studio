@@ -8,4 +8,6 @@ artifacts/
 .env.*
 !.env.example
 *.log
+*secrets.h
+secrets.h
 

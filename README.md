@@ -87,24 +87,119 @@ Sau chuyển đổi, `scripts/repair-character-materials.mjs` khôi phục opaci
 
 Chuyển đổi vẫn báo cảnh báo transform inheritance. Cần kiểm tra hình ảnh nếu thay asset hoặc đổi công cụ chuyển đổi. Bản hiện tại đã được xem ở tư thế nghỉ, vẫy chào và hai tay trước ngực; kiểm tra tự động kiểm tra skin không có tọa độ lỗi trên tất cả clip và ngón tay thay đổi giữa chữ A/B.
 
-## Tích hợp Phần cứng ESP32-S3 (Micro INMP441 + Groq Whisper)
+## Tích hợp Phần cứng ESP32-S3 (Micro INMP441 + Groq Whisper + Màn hình TFT ST7789 2.8")
 
-Dự án hỗ trợ nhận diện giọng nói từ module phần cứng **ESP32-S3** gắn micro I2S **INMP441** thông qua file `testmic.ino`:
+Dự án hỗ trợ nhận diện giọng nói từ module **ESP32-S3** gắn micro I2S **INMP441**, đồng thời **truyền luồng hình ảnh chuyển động 3D của Avatar từ Sign Studio xuống màn hình màu TFT ST7789 2.8 inch (320x240)** thông qua WebSocket thời gian thực:
 
-1. **Chuẩn bị board ESP32-S3:**
-   - Cần board có PSRAM (ví dụ ESP32-S3-DevKitC-1 N16R8 hoặc tương đương).
-   - Micro INMP441 kết nối các chân: `SCK` -> GPIO 5, `WS` -> GPIO 6, `SD` -> GPIO 7, `VDD` -> 3.3V, `GND` / `L/R` -> GND.
-   - Trong Arduino IDE, cài thư viện **`WebSockets`** (bởi Markus Sattler) và **`ArduinoJson`** (v7.x).
-   - Nạp file `testmic.ino` lên ESP32.
-2. **Lấy địa chỉ IP:**
-   - Mở Serial Monitor (baud 115200), khi ESP32 kết nối WiFi sẽ in ra:
+### 1. Sơ đồ đấu nối phần cứng (Pinout)
+
+#### A. Micro I2S INMP441:
+| Chân INMP441 | Chân ESP32-S3 | Chức năng |
+| :--- | :--- | :--- |
+| **SCK** | **GPIO 5** | I2S Serial Clock |
+| **WS** | **GPIO 6** | I2S Word Select / L/R Clock |
+| **SD** | **GPIO 7** | I2S Serial Data Out |
+| **VDD** | **3.3V** | Nguồn nuôi 3.3V (Không nối vào 5V) |
+| **GND** / **L/R** | **GND** | Nối đất (L/R nối GND chọn kênh Trái / Mono) |
+
+#### B. Màn hình màu TFT LCD ST7789 2.8" SPI (320x240 Landscape):
+| Chân TFT ST7789 | Chân ESP32-S3 | Chức năng |
+| :--- | :--- | :--- |
+| **CS** | **GPIO 40** | Chip Select (SPI SS) |
+| **RESET / RST** | **GPIO 42** | Hardware Reset |
+| **DC / RS** | **GPIO 41** | Data / Command Select |
+| **SDI / MOSI** | **GPIO 39** | SPI Master Out Slave In |
+| **SCK / CLK** | **GPIO 38** | SPI Clock (FSPI 40MHz) |
+| **SDO / MISO** | **GPIO 2** | Tùy chọn (ST7789 là write-only) |
+| **VCC** | **3.3V** hoặc **5V** | Tùy thông số module (khuyến nghị 3.3V) |
+| **GND** | **GND** | Nối đất |
+| **BLK / LED** | **3.3V** *(hoặc GPIO)* | Đèn nền màn hình (Backlight) |
+
+> [!NOTE]
+> - Các chân GPIO 35, 36, 37 được để trống tuyệt đối để tránh xung đột với bộ nhớ Octal PSRAM của ESP32-S3.
+> - Các chân I2S (GPIO 5, 6, 7) và SPI TFT (GPIO 38, 39, 40, 41, 42) hoàn toàn độc lập, không chia sẻ chân tín hiệu.
+
+---
+
+### 2. Thư viện Arduino cần thiết & Phiên bản tương thích
+
+Cài đặt các thư viện sau qua Arduino Library Manager:
+* **`Adafruit ST7735 and ST7789 Library`** (v1.11.0 hoặc mới hơn)
+* **`Adafruit GFX Library`** (v1.12.0 hoặc mới hơn)
+* **`JPEGDecoder`** (bởi Bodmer, v2.0.0)
+* **`WebSockets`** (bởi Markus Sattler, v2.7.2)
+* **`ArduinoJson`** (bởi Benoît Blanchon, v7.x)
+
+---
+
+### 3. Cấu hình Arduino IDE khi nạp firmware
+
+Trong Arduino IDE (menu **Tools**):
+* **Board:** `ESP32S3 Dev Module`
+* **PSRAM:** `OPI PSRAM` (hoặc `QSPI PSRAM` tùy phiên bản board N16R8/N8R2)
+* **Flash Size:** `16MB (128Mb)`
+* **Flash Mode:** `QIO 80MHz`
+* **USB CDC On Boot:** `Enabled`
+* **Upload Speed:** `921600`
+* **Port:** Chọn đúng cổng COM của ESP32-S3
+
+---
+
+### 4. Kiến trúc truyền hình ảnh & FreeRTOS
+
+1. **Sign Studio (Three.js WebGL):**
+   * Sử dụng camera chuyên dụng hướng góc nhìn chuẩn 3/4 thân trên và 2 bàn tay avatar.
+   * Render khung hình 320x240 qua `WebGLRenderTarget` độc lập (không bị méo hay ảnh hưởng khi người dùng xoay/zoom màn hình chính).
+   * Nén sang định dạng JPEG nhẹ (chất lượng 50% - 70%, dung lượng ~4–8 KB).
+   * Đóng gói chunk nhị phân với 16-byte fixed header (Magic `TF`, Version 1, Sequence FrameID, Chunk index/total).
+   * Cơ chế **Backpressure**: Chỉ phát frame kế tiếp khi ESP32 phản hồi `tft_frame_ack` (hoặc timeout 1.2s), tự động drop frame cũ để duy trì thời gian thực.
+2. **ESP32-S3 Firmware (Multi-core FreeRTOS):**
+   * **Core 0 (Background Task):** Thực thi HTTP POST tải audio lên Groq Whisper API. Nhờ vậy, cuộc gọi mạng nặng không bao giờ chặn (block) vòng lặp chính.
+   * **Core 1 (Main Loop):** Tiếp nhận WebSocket binary chunks, giải mã JPEG theo khối MCU và xuất trực tiếp ra ST7789 qua SPI DMA ở tốc độ 3–8 FPS mượt mà.
+
+---
+
+### 5. Hướng dẫn vận hành
+
+1. **Cấu hình & Nạp Firmware:**
+   * Tạo file `testmic/secrets.h` (file này tự động nằm trong `.gitignore`, không lo lộ mật khẩu khi đẩy lên Git):
+     ```cpp
+     #pragma once
+     #define WIFI_SSID "Tên_WiFi_Của_Bạn"
+     #define WIFI_PASS "Mật_Khẩu_WiFi"
+     #define API_KEY   "gsk_Your_Groq_Api_Key"
      ```
-     WiFi connected!
-     192.168.x.x
-     Sign Studio ket noi tai: ws://192.168.x.x:81
-     ```
-3. **Kết nối trên giao diện Sign Studio:**
-   - Mở web app trên trình duyệt (cùng mạng WiFi với ESP32).
-   - Ở thanh điều khiển trên cùng (Header Actions), nhập IP của ESP32 vào ô `ESP32 IP` rồi bấm nút **📡 ESP32**.
-   - Dấu chấm trạng thái sẽ đổi sang màu xanh lá 🟢. Địa chỉ IP sẽ tự động lưu trong trình duyệt.
-   - Khi bạn nói vào micro INMP441: ESP32 tự động nhận diện qua Groq Whisper -> gửi văn bản thời gian thực qua WebSocket -> Avatar 3D trên màn hình lập tức diễn ký hiệu tương ứng!
+   * Mở file [testmic/testmic.ino](testmic/testmic.ino) trong Arduino IDE và nhấn **Upload** (hoặc dùng `arduino-cli upload -p COM4 --fqbn esp32:esp32:esp32s3 testmic`).
+2. **Khởi động ứng dụng:**
+   ```sh
+   npm run dev
+   ```
+   Mở địa chỉ: `http://127.0.0.1:3001/`
+3. **Kết nối & Xem Avatar trên TFT:**
+   * Nhập IP của ESP32 hiển thị trên màn hình ST7789 vào ô `ESP32 IP` $\rightarrow$ bấm **📡 ESP32** (chấm tròn đổi sang 🟢).
+   * Bấm nút **📺 Truyền TFT** trên thanh điều khiển.
+   * Nhân vật avatar 3D trên trình duyệt sẽ lập tức xuất hiện và chuyển động đồng thời trên màn hình ST7789 2.8 inch!
+   * Bạn có thể tùy chỉnh FPS (tối ưu lên đến 25–30 FPS) và chất lượng JPEG (50%, 60%, 70%) trực tiếp trên giao diện.
+
+---
+
+### 6. Xử lý sự cố thường gặp (Troubleshooting)
+
+| Hiện tượng | Nguyên nhân | Cách khắc phục |
+| :--- | :--- | :--- |
+| **Màn hình trắng xóa** | Chưa cấp nguồn cho chân BLK hoặc chưa nối đúng chân Reset | Kiểm tra chân BLK/LED đã nối vào 3.3V chưa; kiểm tra GPIO 42 (RST) và GPIO 40 (CS). |
+| **Màn hình đen hoàn toàn** | Đấu sai chân SPI MOSI/SCK hoặc cáp lỏng | Kiểm tra GPIO 39 (MOSI) và GPIO 38 (SCK); kiểm tra tiếp xúc dây cắm. |
+| **Avatar bị giật / chậm** | Mạng WiFi yếu hoặc đặt chất lượng JPEG quá cao | Chọn mức 15–20 FPS và JPEG 50% trên giao diện; kiểm tra khoảng cách tới router WiFi. |
+| **Báo lỗi PSRAM** | Chưa bật OPI PSRAM trong cấu hình board | Vào Tools -> PSRAM -> chọn OPI PSRAM (với chip ESP32-S3 N16R8). |
+
+---
+
+### 7. Hệ thống chống nhiễu & loại bỏ ảo giác Whisper 2 tầng (2-Tier Hallucination Prevention)
+
+* **Tầng 1 (VAD & Noise Gate tại ESP32):**
+  * Tự động loại bỏ tiếng thở, tặc lưỡi, va quẹt micro với ngưỡng `MIN_VOICE_MS = 500ms` và bộ lọc biên độ đỉnh `MIN_VOICE_PEAK = 2000`.
+  * Chỉ tiến hành khuếch đại (`normalizeAudio`) với âm lượng đạt chuẩn, hạn chế tối đa việc kéo nhiễu nền lên.
+* **Tầng 2 (Prompting & Post-filtering):**
+  * Tham số `temperature=0.0` ép Groq Whisper giải mã chế độ Greedy Decoding chuẩn xác nhất.
+  * Bổ sung hội thoại mẫu (Prompt) định hướng ngữ cảnh tiếng Việt thường ngày.
+  * Bộ lọc từ khóa ảo giác YouTube (Ghiền Mì Gõ, La La School, subscribe, hẹn gặp lại,...) loại bỏ hoàn toàn các câu outro trước khi kích hoạt avatar 3D.

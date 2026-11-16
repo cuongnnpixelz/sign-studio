@@ -14,6 +14,7 @@ import { requestHybridGloss } from './nlp/hybridClient.js';
 import { signLearnerInstance } from './nlp/signLearner.js';
 import { generateProceduralKeyframes } from './avatar/proceduralSignGenerator.js';
 import { ESP32Bridge } from './hardware/esp32Bridge.js';
+import { TFTFrameStreamer } from './hardware/tftFrameStreamer.js';
 
 class App {
   constructor() {
@@ -756,6 +757,9 @@ class App {
 
     // Render scene
     this.renderer.render(this.scene, this.camera);
+
+    // TFT ST7789 Frame Streamer
+    this.tftStreamer?.update(this.renderer, this.scene);
   }
 
   cancelPending() {
@@ -1073,6 +1077,94 @@ class App {
         this.esp32Bridge.connect(ip);
       }
     }, 1500);
+
+    // Khởi tạo điều khiển TFT ST7789 Streamer
+    this.initTFTStreamControls();
+  }
+
+  initTFTStreamControls() {
+    this.tftStreamBtn = document.getElementById('tft-stream-btn');
+    this.tftFpsSelect = document.getElementById('tft-fps-select');
+    this.tftQualitySelect = document.getElementById('tft-quality-select');
+    this.tftInvertBtn = document.getElementById('tft-invert-btn');
+    this.tftRotateBtn = document.getElementById('tft-rotate-btn');
+    this.tftStatsBadge = document.getElementById('tft-stats');
+
+    this.tftCurrentInvert = false;
+    this.tftCurrentRotation = 1;
+
+    this.tftStreamer = new TFTFrameStreamer({
+      bridge: this.esp32Bridge,
+      onStats: (stats) => this.updateTFTStats(stats),
+      onError: (msg) => this.showNotice(msg)
+    });
+
+    if (this.tftStreamBtn) {
+      this.tftStreamBtn.addEventListener('click', () => {
+        if (!this.tftStreamer) return;
+        if (this.tftStreamer.enabled) {
+          this.tftStreamer.stop();
+          this.tftStreamBtn.classList.remove('active');
+          this.tftStreamBtn.textContent = '📺 Truyền TFT';
+          this.showNotice('Đã dừng truyền avatar lên màn hình TFT ST7789.');
+        } else {
+          const started = this.tftStreamer.start();
+          if (started) {
+            this.tftStreamBtn.classList.add('active');
+            this.tftStreamBtn.textContent = '⏹ Dừng TFT';
+            this.showNotice('Đang truyền chuyển động avatar 3D lên màn hình TFT ST7789!');
+          }
+        }
+      });
+    }
+
+    if (this.tftInvertBtn) {
+      this.tftInvertBtn.addEventListener('click', () => {
+        this.tftCurrentInvert = !this.tftCurrentInvert;
+        this.tftStreamer?.setInvert(this.tftCurrentInvert);
+        this.showNotice(this.tftCurrentInvert ? 'Đã gửi lệnh: Bật đảo màu TFT.' : 'Đã gửi lệnh: Tắt đảo màu TFT.');
+      });
+    }
+
+    if (this.tftRotateBtn) {
+      this.tftRotateBtn.addEventListener('click', () => {
+        this.tftCurrentRotation = (this.tftCurrentRotation === 1) ? 0 : 1;
+        this.tftStreamer?.setRotation(this.tftCurrentRotation);
+        this.showNotice(`Đã đổi góc quay màn hình sang: ${this.tftCurrentRotation === 1 ? 'Ngang (320x240)' : 'Dọc (240x320)'}`);
+      });
+    }
+
+    if (this.tftFpsSelect) {
+      this.tftFpsSelect.addEventListener('change', (e) => {
+        this.tftStreamer?.setFPS(Number(e.target.value));
+      });
+    }
+
+    if (this.tftQualitySelect) {
+      this.tftQualitySelect.addEventListener('change', (e) => {
+        this.tftStreamer?.setQuality(Number(e.target.value));
+      });
+    }
+  }
+
+  updateTFTStats(stats) {
+    if (!this.tftStatsBadge) return;
+    if (stats.enabled) {
+      const dropTxt = stats.dropped > 0 ? ` · drop ${stats.dropped}` : '';
+      this.tftStatsBadge.textContent = `${stats.fps} fps · ${stats.lastSizeKb}KB${dropTxt}`;
+      this.tftStatsBadge.className = 'tft-stats-badge streaming';
+      if (this.tftStreamBtn) {
+        this.tftStreamBtn.classList.add('active');
+        this.tftStreamBtn.textContent = '⏹ Dừng TFT';
+      }
+    } else {
+      this.tftStatsBadge.textContent = 'TFT: Tắt';
+      this.tftStatsBadge.className = 'tft-stats-badge';
+      if (this.tftStreamBtn) {
+        this.tftStreamBtn.classList.remove('active');
+        this.tftStreamBtn.textContent = '📺 Truyền TFT';
+      }
+    }
   }
 
   updateESP32Status(status) {
@@ -1086,6 +1178,23 @@ class App {
     const [dot, btnText, notice] = labels[status] || labels.disconnected;
     this.esp32StatusDot.textContent = dot;
     this.esp32ConnectBtn.textContent = btnText;
+
+    // Cập nhật trạng thái nút bấm TFT Stream
+    if (this.tftStreamBtn) {
+      if (status === 'connected') {
+        this.tftStreamBtn.disabled = false;
+        if (this.tftInvertBtn) this.tftInvertBtn.disabled = false;
+        if (this.tftRotateBtn) this.tftRotateBtn.disabled = false;
+      } else {
+        this.tftStreamBtn.disabled = true;
+        if (this.tftInvertBtn) this.tftInvertBtn.disabled = true;
+        if (this.tftRotateBtn) this.tftRotateBtn.disabled = true;
+        if (this.tftStreamer?.enabled) {
+          this.tftStreamer.stop();
+        }
+      }
+    }
+
     if (status === 'connected' || status === 'error') {
       this.showNotice(notice);
     }

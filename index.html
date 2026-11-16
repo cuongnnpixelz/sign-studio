@@ -59,6 +59,28 @@
           </button>
           <span id="esp32-status" class="esp32-status-dot" title="Trạng thái ESP32">⚫</span>
         </div>
+        <!-- TFT ST7789 Stream Controls -->
+        <div class="tft-controls" id="tft-controls-panel">
+          <button id="tft-stream-btn" class="pill-action-btn tft-stream-btn" title="Bật/Dừng truyền avatar 3D lên màn hình TFT ST7789" disabled>
+            📺 Truyền TFT
+          </button>
+          <select id="tft-fps-select" class="modern-select tft-select" title="Tốc độ khung hình (FPS) gửi lên TFT">
+            <option value="10">10 FPS</option>
+            <option value="15">15 FPS</option>
+            <option value="20">20 FPS</option>
+            <option value="25" selected>25 FPS (Siêu mượt)</option>
+            <option value="30">30 FPS (Tối đa 30Hz)</option>
+          </select>
+          <select id="tft-quality-select" class="modern-select tft-select" title="Chất lượng nén JPEG">
+            <option value="0.40">40% (Siêu tốc)</option>
+            <option value="0.45" selected>45% (Chuẩn 25-30 FPS)</option>
+            <option value="0.50">50%</option>
+            <option value="0.60">60%</option>
+          </select>
+          <button id="tft-invert-btn" class="pill-action-btn tft-sub-btn" title="Đảo bảng màu nếu màn hình bị âm bản/ngược màu" disabled>🎨 Đảo màu</button>
+          <button id="tft-rotate-btn" class="pill-action-btn tft-sub-btn" title="Xoay hướng hiển thị (Ngang 320x240 / Dọc 240x320)" disabled>🔄 Xoay</button>
+          <span id="tft-stats" class="tft-stats-badge" title="Trạng thái truyền TFT">TFT: Tắt</span>
+        </div>
         <label class="character-selector" for="character-model-select">Nhân vật
           <select id="character-model-select" class="modern-select">
             <option value="vest" selected>Nhân vật Vest</option>
